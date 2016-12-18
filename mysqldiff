@@ -1,0 +1,298 @@
+#!/usr/bin/env node
+
+var program = require('commander');
+var DB = require("./DB");
+
+var db1, db2, all = {};
+
+program
+	.version('0.0.1')
+	.option('-s1, --server1 [server]', 'server1')
+	.option('-s2, --server2 [server]', 'server2')
+	.parse(process.argv);
+
+function check() {
+	if (!program.server1) return console.log('-- server1 参数错误！');
+	if (!program.server2) return console.log('-- server2 参数错误！');
+	return true;
+}
+function start() {
+	if (!check()) return;
+	console.log('-- 正在连接服务器：server1 & server2...');
+	db1 = new DB(program.server1);
+	db2 = new DB(program.server2);
+	db1.connect().then(function(v){
+		if (!v) return console.log('-- 服务器server1：连接成功！');
+		console.error('服务器server1连接失败：', v.message);
+		exit();
+	}).then(db2.connect).then(function(v){
+		if (v) console.error('-- 服务器server2连接失败：', v.message);
+		else console.log('-- 服务器server2：连接成功！');
+		if (v) exit();
+		Promise.all([getTables(), getParameterss()]).then(allDesc).then(diff).then(function(v) {
+			if (v.sqlUp) {
+				console.log('-- 服务器server2需要更新表结构如下：');
+				for(var k in v.sql) console.log(v.sql[k]);
+			}
+			if (v.procUp) {
+				console.log('-- 服务器server2需要更新存储过程如下：');
+				for(var k in v.proc) console.log(v.proc[k]);
+			}
+			if (v.funcUp) {
+				console.log('-- 服务器server2需要更新函数如下：');
+				for(var k in v.func) console.log(v.func[k]);
+			}
+			if (!v.sqlUp && !v.procUp && !v.funcUp) console.log('-- 已经是最新，不需要更新！');
+			exit();
+		});
+	});
+}
+function diff(v) {
+	var d = { sql: {}, proc: {}, func: {}, sqlUp: 0, procUp: 0, funcUp: 0 };
+	for(var i = 0, len = v[0][0].length; i < len; i++) {
+		var name = v[0][0][i];
+		var table1 = v[2][name];
+		var table2 = v[3][name];
+		var sql = diffTable(name, table1, table2);
+		if (sql && sql.length > 0) {
+			d.sql[name] = sql;
+			d.sqlUp = 1;
+		}
+	}
+	for(var i = 0, len = v[1][0].length; i < len; i++) {
+		var name = v[1][0][i];
+		var proc1 = v[2][name];
+		var proc2 = v[3][name];
+		var sql = diffProcedure(name, proc1, proc2, 'PROCEDURE');
+		if (sql && sql.length > 0) {
+			d.proc[name] = sql;
+			d.procUp = 1;
+		}
+	}
+	for(var i = 0, len = v[1][1].length; i < len; i++) {
+		var name = v[1][1][i];
+		var proc1 = v[2][name];
+		var proc2 = v[3][name];
+		var sql = diffProcedure(name, proc1, proc2, 'FUNCTION');
+		if (sql && sql.length > 0) {
+			d.func[name] = sql;
+			d.funcUp = 1;
+		}
+	}
+	return Promise.resolve(d);
+}
+function diffProcedure(name, proc1, proc2, ex) {
+	var p1 = filterProcedure(proc1);
+	var p2 = filterProcedure(proc2);
+	if (p1 == p2) return null;
+
+	if (p1 != '' && p2 == '') return 'DELIMITER ;;\n'+proc1+' ;;\nDELIMITER ;\n';
+	if (p1 == '' && p2 != '') return 'DROP '+ex+' `' + name + '`;\n';
+
+	return 'DROP '+ex+' `' + name + '`;\nDELIMITER ;;\n'+proc1+' ;;\nDELIMITER ;\n';
+}
+function filterProcedure(proc) {
+	if (!proc) return '';
+	return proc.trim();
+}
+function diffTable(name, table1, table2) {
+	var t1 = filterTable(table1);
+	var t2 = filterTable(table2);
+	if (t1 == t2) return null;
+
+	if (t1 != '' && t2 == '') return table1 + ';\n';
+	if (t1 == '' && t2 != '') return 'DROP TABLE `' + name + '`;\n';
+
+	return diffTableField(name, table1, table2);
+}
+function diffTableField(name, table1, table2) {
+	var t1 = table1.split('\n');
+	var t2 = table2.split('\n');
+	if (t1.length < 3 || t2.length < 3) return '';
+
+	var col = [], col1 = {}, col2 = {};
+	var key = [], key1 = {}, key2 = {};
+	var pk1 = '', pk2 = '';
+
+	for (var i=1, len = t1.length-1; i<len; i++) {
+		var row = t1[i].trim(), l = row.length-1;
+		if (row.lastIndexOf(',') == l) row = row.substring(0, l);
+		var field = row.indexOf('`') == 0 ? row.split(' ')[0] : false;
+		var pkey = row.indexOf('PRIMARY KEY ') == 0 ? row.substring(12) : false;
+		var ikey = row.indexOf('KEY `') == 0 ? row.substring(4) : false;
+		if (field) { col1[field] = row; if (col.indexOf(field) == -1) col.push(field); }
+		if (pkey) pk1 = pkey;
+		if (ikey) { key1[ikey] = 1; if (key.indexOf(ikey) == -1) key.push(ikey); }
+	}
+
+	for (var i=1, len = t2.length-1; i<len; i++) {
+		var row = t2[i].trim(), l = row.length-1;
+		if (row.lastIndexOf(',') == l) row = row.substring(0, l);
+		var field = row.indexOf('`') == 0 ? row.split(' ')[0] : false;
+		var pkey = row.indexOf('PRIMARY KEY ') == 0 ? row.substring(12) : false;
+		var ikey = row.indexOf('KEY `') == 0 ? row.substring(4) : false;
+		if (field) { col2[field] = row; if (col.indexOf(field) == -1) col.push(field); }
+		if (pkey) pk2 = pkey;
+		if (ikey) { key2[ikey] = 1; if (key.indexOf(ikey) == -1) key.push(ikey); }
+	}
+
+	var sql = '';
+	for(var i=0, len = col.length; i<len; i++) {
+		var c = col[i], c1 = col1[c], c2 = col2[c];
+		var c3 = filterField(c1), c4 = filterField(c2);
+		if (c3 == c4) continue;
+
+		if (c3 != '' && c4 == '') {
+			sql += 'ALTER TABLE `'+name+'` ADD COLUMN '+c1+';\n';
+			continue;
+		}
+		if (c3 == '' && c4 != '') {
+			sql += 'ALTER TABLE `'+name+'` DROP COLUMN '+c+';\n';
+			continue;
+		}
+		sql += 'ALTER TABLE `'+name+'` CHANGE COLUMN '+c+' '+c1+';\n';
+	}
+
+	if (pk1 != '' && pk2 == '') sql += 'ALTER TABLE `'+name+'` ADD PRIMARY KEY '+pk1+';\n';
+	if (pk1 == '' && pk2 != '') sql += 'ALTER TABLE `'+name+'` DROP PRIMARY KEY;\n';
+	if (pk1 != '' && pk2 != '' && pk1 != pk2) sql += 'ALTER TABLE `'+name+'` DROP PRIMARY KEY,ADD PRIMARY KEY '+pk2+';\n';
+
+	for(var i=0, len = key.length; i<len; i++) {
+		var k = key[i], k1 = key1[k], k2 = key2[k];
+		if (k1 == k2) continue;
+
+		if (k1 && !k2) {
+			sql += 'ALTER TABLE `'+name+'` ADD INDEX '+k+';\n';
+			continue;
+		}
+		if (!k1 && k2) {
+			var kname = k.split(' ')[0];
+			sql += 'ALTER TABLE `'+name+'` DROP INDEX '+kname+';\n';
+			continue;
+		}
+	}
+
+	return sql;
+}
+function filterField(field) {
+	if (!field) return '';
+	field = field.replace(/ COMMENT '.*'/g, '');
+	field = field.replace(/ COMMENT='.*'/g, '');
+	return field.trim();
+}
+function filterTable(table) {
+	if (!table) return '';
+	table = table.replace(/AUTO_INCREMENT=.* /g, '');
+	table = table.replace(/ CHECKSUM=1/g, '');
+	table = table.replace(/ DELAY_KEY_WRITE=1/g, '');
+	table = table.replace(/ ROW_FORMAT=DYNAMIC/g, '');
+	table = table.replace(/ DEFAULT/g, '');
+	table = filterField(table);
+	return table.trim();
+}
+function allDesc(v) {
+	console.log('-- 开始比较server1 & server2的差异...');
+	var list = [], objs = [];
+	for(var k in v[0][1]) { //server1 tables(1)
+		list.push(db1.showCreateTable(k));
+		objs.push('0-' + 1 + '-' + k);
+	}
+	for(var k in v[0][2]) { //server2 tables(1)
+		list.push(db2.showCreateTable(k));
+		objs.push('1-' + 1 + '-' + k);
+	}
+	for(var k in v[1][2]) { //server1 procedure(2)
+		var proc = v[1][0].indexOf(k) != -1;
+		var func = v[1][1].indexOf(k) != -1;
+		if (proc) {
+			list.push(db1.showCreateProcedure(k));
+			objs.push('0-' + 2 + '-' + k);
+		}
+		if (func) {
+			list.push(db1.showCreateFunction(k));
+			objs.push('0-' + 3 + '-' + k);
+		}
+	}
+	for(var k in v[1][3]) { //server2 procedure(2)
+		var proc = v[1][0].indexOf(k) != -1;
+		var func = v[1][1].indexOf(k) != -1;
+		if (proc) {
+			list.push(db2.showCreateProcedure(k));
+			objs.push('1-' + 2 + '-' + k);
+		}
+		if (func) {
+			list.push(db2.showCreateFunction(k));
+			objs.push('1-' + 3 + '-' + k);
+		}
+	}
+	return Promise.all(list).then(function(v2){
+		v.push({}); v.push({});
+		for(var i = 0, len = v2.length; i < len; i++) {
+			var types = objs[i].split('-');
+			var val = v2[i];
+			var s = parseInt(types[0]) + 2;
+			v[s][types[2]] = val;
+		}
+		return v;
+	});
+}
+function getTables() {
+	var tables = [[], {}, {}];
+	console.log('-- 正在获取数据表...');
+	return Promise.all([db1.tables(), db2.tables()]).then(function(v){
+		for(var i = 0, len = v[0].length; i < len; i++) {
+			var table = v[0][i].tabName;
+			tables[0].push(table);
+			tables[1][table] = {};
+		}
+		console.log('-- server1获取数据表', v[0].length, '个！');
+		for(var i = 0, len = v[1].length; i < len; i++) {
+			var table = v[1][i].tabName;
+			if (tables[0].indexOf(table) == -1) tables[0].push(table);
+			tables[2][table] = {};
+		}
+		tables[0].sort();
+		console.log('-- server2获取数据表', v[1].length, '个！');
+		console.log('-- server1 & server2 合并数据表', tables[0].length, '个！');
+		return tables;
+	});
+}
+function getParameterss() {
+	var parameters = [[], [], {}, {}];
+	console.log('-- 正在获取存储过程和函数...');
+	return Promise.all([db1.parameters(), db2.parameters()]).then(function(v){
+		for(var i = 0, len = v[0].length; i < len; i++) {
+			var parameter = v[0][i].parName;
+			var type = v[0][i].type;
+			if (type == 'PROCEDURE') parameters[0].push(parameter);
+			if (type == 'FUNCTION')  parameters[1].push(parameter);
+			parameters[2][parameter] = {};
+		}
+		console.log('-- server1获取存储过程和函数', v[0].length, '个！');
+		for(var i = 0, len = v[1].length; i < len; i++) {
+			var parameter = v[1][i].parName;
+			var type = v[1][i].type;
+			if (type == 'PROCEDURE' && parameters[0].indexOf(parameter) == -1)
+				parameters[0].push(parameter);
+			if (type == 'FUNCTION' && parameters[1].indexOf(parameter) == -1)
+				parameters[1].push(parameter);
+			parameters[3][parameter] = {};
+		}
+		console.log('-- server2获取存储过程和函数', v[1].length, '个！');
+		console.log('-- server1 & server2 合并存储过程', parameters[0].length, '个！');
+		console.log('-- server1 & server2 合并函数', parameters[1].length, '个！');
+		return parameters;
+	});
+}
+
+function exit() {
+	if (!db1 && !db2) process.exit();
+	var list = [];
+	if (db1) list.push(db1.close());
+	if (db2) list.push(db2.close());
+	Promise.all(list).then(function(v){
+		setTimeout(process.exit, 1000);
+	})
+}
+
+start();

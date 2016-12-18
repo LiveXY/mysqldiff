@@ -1,0 +1,13 @@
+{
+  "name": "mysqldiff",
+  "description": "mysqldiff",
+  "version": "0.0.1",
+  "private": true,
+  "bin": {
+    "mysqldiff": "mysqldiff"
+  },
+  "dependencies": {
+    "mysql": "*",
+    "commander": "*"
+  }
+}

@@ -1,0 +1,16 @@
+#!/usr/bin/expect
+set timeout 30
+set host1 [lindex $argv 0]
+set host2 [lindex $argv 1]
+set password [lindex $argv 2]
+set port 22;
+if {$argc == 4} {
+	set port [lindex $argv 3]
+}
+if {$port == "undefined"} {
+	set port 22
+}
+spawn ssh -f -N -L $host1 -p $port $host2
+expect "password:"
+send "$password\r"
+expect eof
