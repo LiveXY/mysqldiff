@@ -25,4 +25,4 @@ mysqldiff --server1=dbuser:dbpassword@dbhost~database --server2=dbuser:dbpasswor
 ```
 
 #运行环境
-支持linux、mac，不支持windows
+支持linux、mac，ssh不支持windows
