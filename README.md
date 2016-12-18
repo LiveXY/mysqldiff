@@ -21,7 +21,7 @@ mysqldiff --server1=dbuser:dbpassword@dbhost~database --server2=dbuser:dbpasswor
 #port
 mysqldiff --server1=dbuser:dbpassword@dbhost~database#dbport --server2=dbuser:dbpassword@dbhost~database#dbport
 #ssh
-mysqldiff --server1=dbuser:dbpassword@dbhost~database --server2=dbuser:dbpassword@dbhost~database:dbport+sshuser:sshpassword@sshhost:sshport
+mysqldiff --server1=dbuser:dbpassword@dbhost~database --server2=dbuser:dbpassword@dbhost~database:dbport+sshuser:sshpassword@sshhost#sshport
 ```
 
 #运行环境
