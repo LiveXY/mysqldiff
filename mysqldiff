@@ -4,47 +4,54 @@ var program = require('commander');
 var DB = require("./DB");
 
 var db1, db2, all = {};
-var server1Tip = '--server1=dbuser:dbpassword@dbhost~database#dbport';
-var server2Tip = '--server2=dbuser:dbpassword@dbhost~database#dbport+sshuser:sshpassword@sshhost#sshport';
-var typeTip = 'type=table|procedure|function';
+var db1Tip = '--db1=dbuser:dbpassword@dbhost~database#dbport';
+var db2Tip = '--db2=dbuser:dbpassword@dbhost~database#dbport+sshuser:sshpassword@sshhost#sshport';
+var typeTip = '--type=table|procedure|function';
 
 program
+	.on('--help', function(){
+		console.log('  实例:');
+		console.log('');
+		console.log('    mysqldiff --db1=root:password@127.0.0.1~database1 --db2=root:password@127.0.0.1~database2');
+		console.log('');
+	})
 	.version('0.0.1')
-	.option('--server1 <server>', server1Tip)
-	.option('--server2 <server>', server2Tip)
+	.description('mysql 数据库表结构，存储过程，函数对比工具，差异生成SQL。')
+	.option('--db1 <server>', db1Tip)
+	.option('--db2 <server>', db2Tip)
 	.option('--type <type>', typeTip)
 	.parse(process.argv);
 
 function check() {
-	if (!program.server1 || program.server1.indexOf(':') == -1 || program.server1.indexOf('@') == -1 || program.server1.indexOf('~') == -1) return console.log('--server1 参数错误！', server1Tip);
-	if (!program.server2 || program.server2.indexOf(':') == -1 || program.server2.indexOf('@') == -1 || program.server2.indexOf('~') == -1) return console.log('--server2 参数错误！', server2Tip);
+	if (!program.db1 || program.db1.indexOf(':') == -1 || program.db1.indexOf('@') == -1 || program.db1.indexOf('~') == -1) return console.log('--db1 参数错误！', db1Tip);
+	if (!program.db2 || program.db2.indexOf(':') == -1 || program.db2.indexOf('@') == -1 || program.db2.indexOf('~') == -1) return console.log('--db2 参数错误！', db2Tip);
 	if (program.type && !/^(table|procedure|function)$/i.test(program.type)) return console.log('--type 参数错误！', typeTip);
 	return true;
 }
 function start() {
 	if (!check()) return;
-	console.log('-- 正在连接服务器：server1 & server2...');
-	db1 = new DB(program.server1);
-	db2 = new DB(program.server2);
+	console.log('-- 正在连接数据库：db1 & db2...');
+	db1 = new DB(program.db1);
+	db2 = new DB(program.db2);
 	db1.connect().then(function(v){
-		if (!v) return console.log('-- 服务器server1：连接成功！');
-		console.error('服务器server1连接失败：', v.message);
+		if (!v) return console.log('-- 数据库db1：连接成功！');
+		console.error('数据库db1连接失败：', v.message);
 		exit();
 	}).then(db2.connect).then(function(v){
-		if (v) console.error('-- 服务器server2连接失败：', v.message);
-		else console.log('-- 服务器server2：连接成功！');
+		if (v) console.error('-- 数据库db2连接失败：', v.message);
+		else console.log('-- 数据库db2：连接成功！');
 		if (v) exit();
 		Promise.all([getTables(), getParameterss()]).then(allDesc).then(diff).then(function(v) {
 			if (v.sqlUp && (program.type == 'table' || !program.type)) {
-				console.log('-- 服务器server2需要更新表结构如下：');
+				console.log('-- 数据库db2需要更新表结构如下：');
 				for(var k in v.sql) console.log(v.sql[k]);
 			}
 			if (v.procUp && (program.type == 'procedure' || !program.type)) {
-				console.log('-- 服务器server2需要更新存储过程如下：');
+				console.log('-- 数据库db2需要更新存储过程如下：');
 				for(var k in v.proc) console.log(v.proc[k]);
 			}
 			if (v.funcUp && (program.type == 'function' || !program.type)) {
-				console.log('-- 服务器server2需要更新函数如下：');
+				console.log('-- 数据库db2需要更新函数如下：');
 				for(var k in v.func) console.log(v.func[k]);
 			}
 			if (!v.sqlUp && !v.procUp && !v.funcUp) console.log('-- 已经是最新，不需要更新！');
@@ -204,17 +211,17 @@ function filterTable(table) {
 	return table.trim();
 }
 function allDesc(v) {
-	console.log('-- 开始比较server1 & server2的差异...');
+	console.log('-- 开始比较db1 & db2的差异...');
 	var list = [], objs = [];
-	for(var k in v[0][1]) { //server1 tables(1)
+	for(var k in v[0][1]) { //db1 tables(1)
 		list.push(db1.showCreateTable(k));
 		objs.push('0-' + 1 + '-' + k);
 	}
-	for(var k in v[0][2]) { //server2 tables(1)
+	for(var k in v[0][2]) { //db2 tables(1)
 		list.push(db2.showCreateTable(k));
 		objs.push('1-' + 1 + '-' + k);
 	}
-	for(var k in v[1][2]) { //server1 procedure(2)
+	for(var k in v[1][2]) { //db1 procedure(2)
 		var proc = v[1][0].indexOf(k) != -1;
 		var func = v[1][1].indexOf(k) != -1;
 		if (proc) {
@@ -226,7 +233,7 @@ function allDesc(v) {
 			objs.push('0-' + 3 + '-' + k);
 		}
 	}
-	for(var k in v[1][3]) { //server2 procedure(2)
+	for(var k in v[1][3]) { //db2 procedure(2)
 		var proc = v[1][0].indexOf(k) != -1;
 		var func = v[1][1].indexOf(k) != -1;
 		if (proc) {
@@ -258,15 +265,15 @@ function getTables() {
 			tables[0].push(table);
 			tables[1][table] = {};
 		}
-		console.log('-- server1获取数据表', v[0].length, '个！');
+		console.log('-- db1获取数据表', v[0].length, '个！');
 		for(var i = 0, len = v[1].length; i < len; i++) {
 			var table = v[1][i].tabName;
 			if (tables[0].indexOf(table) == -1) tables[0].push(table);
 			tables[2][table] = {};
 		}
 		tables[0].sort();
-		console.log('-- server2获取数据表', v[1].length, '个！');
-		console.log('-- server1 & server2 合并数据表', tables[0].length, '个！');
+		console.log('-- db2获取数据表', v[1].length, '个！');
+		console.log('-- db1 & db2 合并数据表', tables[0].length, '个！');
 		return tables;
 	});
 }
@@ -281,7 +288,7 @@ function getParameterss() {
 			if (type == 'FUNCTION')  parameters[1].push(parameter);
 			parameters[2][parameter] = {};
 		}
-		console.log('-- server1获取存储过程和函数', v[0].length, '个！');
+		console.log('-- db1获取存储过程和函数', v[0].length, '个！');
 		for(var i = 0, len = v[1].length; i < len; i++) {
 			var parameter = v[1][i].parName;
 			var type = v[1][i].type;
@@ -291,9 +298,9 @@ function getParameterss() {
 				parameters[1].push(parameter);
 			parameters[3][parameter] = {};
 		}
-		console.log('-- server2获取存储过程和函数', v[1].length, '个！');
-		console.log('-- server1 & server2 合并存储过程', parameters[0].length, '个！');
-		console.log('-- server1 & server2 合并函数', parameters[1].length, '个！');
+		console.log('-- db2获取存储过程和函数', v[1].length, '个！');
+		console.log('-- db1 & db2 合并存储过程', parameters[0].length, '个！');
+		console.log('-- db1 & db2 合并函数', parameters[1].length, '个！');
 		return parameters;
 	});
 }
