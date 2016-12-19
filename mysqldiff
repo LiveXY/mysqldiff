@@ -7,8 +7,9 @@ var db1, db2, all = {};
 
 program
 	.version('0.0.1')
-	.option('-s1, --server1 [server]', 'server1')
-	.option('-s2, --server2 [server]', 'server2')
+	.option('--server1 [server]', '--server1=dbuser:dbpassword@dbhost~database#dbport')
+	.option('--server2 [server]', '--server1=dbuser:dbpassword@dbhost~database#dbport+sshuser:sshpassword@sshhost#sshport')
+	.option('--type [type]', 'type=table|procedure|function', /^(table|procedure|function)$/i)
 	.parse(process.argv);
 
 function check() {
@@ -30,15 +31,15 @@ function start() {
 		else console.log('-- 服务器server2：连接成功！');
 		if (v) exit();
 		Promise.all([getTables(), getParameterss()]).then(allDesc).then(diff).then(function(v) {
-			if (v.sqlUp) {
+			if (v.sqlUp && (program.type == 'table' || !program.type)) {
 				console.log('-- 服务器server2需要更新表结构如下：');
 				for(var k in v.sql) console.log(v.sql[k]);
 			}
-			if (v.procUp) {
+			if (v.procUp && (program.type == 'procedure' || !program.type)) {
 				console.log('-- 服务器server2需要更新存储过程如下：');
 				for(var k in v.proc) console.log(v.proc[k]);
 			}
-			if (v.funcUp) {
+			if (v.funcUp && (program.type == 'function' || !program.type)) {
 				console.log('-- 服务器server2需要更新函数如下：');
 				for(var k in v.func) console.log(v.func[k]);
 			}
@@ -49,7 +50,7 @@ function start() {
 }
 function diff(v) {
 	var d = { sql: {}, proc: {}, func: {}, sqlUp: 0, procUp: 0, funcUp: 0 };
-	for(var i = 0, len = v[0][0].length; i < len; i++) {
+	if (program.type == 'table' || !program.type) for(var i = 0, len = v[0][0].length; i < len; i++) {
 		var name = v[0][0][i];
 		var table1 = v[2][name];
 		var table2 = v[3][name];
@@ -59,7 +60,7 @@ function diff(v) {
 			d.sqlUp = 1;
 		}
 	}
-	for(var i = 0, len = v[1][0].length; i < len; i++) {
+	if (program.type == 'procedure' || !program.type) for(var i = 0, len = v[1][0].length; i < len; i++) {
 		var name = v[1][0][i];
 		var proc1 = v[2][name];
 		var proc2 = v[3][name];
@@ -69,7 +70,7 @@ function diff(v) {
 			d.procUp = 1;
 		}
 	}
-	for(var i = 0, len = v[1][1].length; i < len; i++) {
+	if (program.type == 'function' || !program.type) for(var i = 0, len = v[1][1].length; i < len; i++) {
 		var name = v[1][1][i];
 		var proc1 = v[2][name];
 		var proc2 = v[3][name];
@@ -86,13 +87,20 @@ function diffProcedure(name, proc1, proc2, ex) {
 	var p2 = filterProcedure(proc2);
 	if (p1 == p2) return null;
 
-	if (p1 != '' && p2 == '') return 'DELIMITER ;;\n'+proc1+' ;;\nDELIMITER ;\n';
+	if (p1 != '' && p2 == '') return 'DELIMITER ;;\n'+changeProcedure(proc1, proc2)+' ;;\nDELIMITER ;\n';
 	if (p1 == '' && p2 != '') return 'DROP '+ex+' `' + name + '`;\n';
 
-	return 'DROP '+ex+' `' + name + '`;\nDELIMITER ;;\n'+proc1+' ;;\nDELIMITER ;\n';
+	return 'DROP '+ex+' `' + name + '`;\nDELIMITER ;;\n'+changeProcedure(proc1, proc2)+' ;;\nDELIMITER ;\n';
+}
+function changeProcedure(proc1, proc2) {
+	var definer = proc2.match(/ DEFINER=(`.*`@`.*`) /i)[1];
+	proc1 = proc1.replace(/ DEFINER=(`.*`@`.*`) /g, ' DEFINER='+definer+' ');
+	return proc1;
 }
 function filterProcedure(proc) {
 	if (!proc) return '';
+	proc = proc.replace(/ DEFINER=.* FUNCTION/g, ' FUNCTION');
+	proc = proc.replace(/ DEFINER=.* PROCEDURE/g, ' PROCEDURE');
 	return proc.trim();
 }
 function diffTable(name, table1, table2) {
