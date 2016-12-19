@@ -4,17 +4,21 @@ var program = require('commander');
 var DB = require("./DB");
 
 var db1, db2, all = {};
+var server1Tip = '--server1=dbuser:dbpassword@dbhost~database#dbport';
+var server2Tip = '--server2=dbuser:dbpassword@dbhost~database#dbport+sshuser:sshpassword@sshhost#sshport';
+var typeTip = 'type=table|procedure|function';
 
 program
 	.version('0.0.1')
-	.option('--server1 [server]', '--server1=dbuser:dbpassword@dbhost~database#dbport')
-	.option('--server2 [server]', '--server1=dbuser:dbpassword@dbhost~database#dbport+sshuser:sshpassword@sshhost#sshport')
-	.option('--type [type]', 'type=table|procedure|function', /^(table|procedure|function)$/i)
+	.option('--server1 <server>', server1Tip)
+	.option('--server2 <server>', server2Tip)
+	.option('--type <type>', typeTip)
 	.parse(process.argv);
 
 function check() {
-	if (!program.server1) return console.log('-- server1 参数错误！');
-	if (!program.server2) return console.log('-- server2 参数错误！');
+	if (!program.server1 || program.server1.indexOf(':') == -1 || program.server1.indexOf('@') == -1 || program.server1.indexOf('~') == -1) return console.log('--server1 参数错误！', server1Tip);
+	if (!program.server2 || program.server2.indexOf(':') == -1 || program.server2.indexOf('@') == -1 || program.server2.indexOf('~') == -1) return console.log('--server2 参数错误！', server2Tip);
+	if (program.type && !/^(table|procedure|function)$/i.test(program.type)) return console.log('--type 参数错误！', typeTip);
 	return true;
 }
 function start() {
@@ -93,6 +97,7 @@ function diffProcedure(name, proc1, proc2, ex) {
 	return 'DROP '+ex+' `' + name + '`;\nDELIMITER ;;\n'+changeProcedure(proc1, proc2)+' ;;\nDELIMITER ;\n';
 }
 function changeProcedure(proc1, proc2) {
+	if (!proc2) return proc1;
 	var definer = proc2.match(/ DEFINER=(`.*`@`.*`) /i)[1];
 	proc1 = proc1.replace(/ DEFINER=(`.*`@`.*`) /g, ' DEFINER='+definer+' ');
 	return proc1;
