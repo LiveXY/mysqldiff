@@ -88,6 +88,10 @@ function DB(connectionString) {
         var sql = 'show create function ' + func;
         return self.first(sql).then(function(v){ return v['Create Function']; });
     }
+    this.getData = function(table) {
+        var sql = 'select * from ' + table + ' limit 1000';
+        return self.query(sql);
+    }
     this.close = function() {
         conn.destroy();
         if (!sshConfig || localPort == 0) return Promise.resolve(null);

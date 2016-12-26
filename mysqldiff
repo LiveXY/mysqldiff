@@ -6,7 +6,8 @@ var DB = require("./DB");
 var db1, db2, all = {};
 var db1Tip = '--db1=dbuser:dbpassword@dbhost~database#dbport';
 var db2Tip = '--db2=dbuser:dbpassword@dbhost~database#dbport+sshuser:sshpassword@sshhost#sshport';
-var typeTip = '--type=table|procedure|function';
+var typeTip = '--type=table|procedure|function|data';
+var tableTip = '--table=db1table:db2table';
 
 program
 	.on('--help', function(){
@@ -16,23 +17,26 @@ program
 		console.log('');
 	})
 	.version('0.0.1')
-	.description('mysql 数据库表结构，存储过程，函数对比工具，差异生成SQL。')
+	.description('mysql 数据库表结构，存储过程，函数，表数据对比工具，差异生成SQL。')
 	.option('--db1 <server>', db1Tip)
 	.option('--db2 <server>', db2Tip)
 	.option('--type <type>', typeTip)
+	.option('--table <table>', tableTip)
+	.option('--reverse', '交换db1与db2配置')
 	.parse(process.argv);
 
 function check() {
 	if (!program.db1 || program.db1.indexOf(':') == -1 || program.db1.indexOf('@') == -1 || program.db1.indexOf('~') == -1) return console.log('--db1 参数错误！', db1Tip);
 	if (!program.db2 || program.db2.indexOf(':') == -1 || program.db2.indexOf('@') == -1 || program.db2.indexOf('~') == -1) return console.log('--db2 参数错误！', db2Tip);
-	if (program.type && !/^(table|procedure|function)$/i.test(program.type)) return console.log('--type 参数错误！', typeTip);
+	if (program.type && !/^(table|procedure|function|data)$/i.test(program.type)) return console.log('--type 参数错误！', typeTip);
+	if (program.type == 'data' && !program.table) return console.log('--table 参数错误！', tableTip);
 	return true;
 }
 function start() {
 	if (!check()) return;
 	console.log('-- 正在连接数据库：db1 & db2...');
-	db1 = new DB(program.db1);
-	db2 = new DB(program.db2);
+	db1 = new DB(program.reverse ? program.db2 : program.db1);
+	db2 = new DB(program.reverse ? program.db1 : program.db2);
 	db1.connect().then(function(v){
 		if (!v) return console.log('-- 数据库db1：连接成功！');
 		console.error('数据库db1连接失败：', v.message);
@@ -41,7 +45,7 @@ function start() {
 		if (v) console.error('-- 数据库db2连接失败：', v.message);
 		else console.log('-- 数据库db2：连接成功！');
 		if (v) exit();
-		Promise.all([getTables(), getParameterss()]).then(allDesc).then(diff).then(function(v) {
+		Promise.all([getTables(), getParameters(), getDatas()]).then(allDesc).then(diff).then(function(v) {
 			if (v.sqlUp && (program.type == 'table' || !program.type)) {
 				console.log('-- 数据库db2需要更新表结构如下：');
 				for(var k in v.sql) console.log(v.sql[k]);
@@ -54,13 +58,17 @@ function start() {
 				console.log('-- 数据库db2需要更新函数如下：');
 				for(var k in v.func) console.log(v.func[k]);
 			}
-			if (!v.sqlUp && !v.procUp && !v.funcUp) console.log('-- 已经是最新，不需要更新！');
+			if (v.dataUp && program.type && program.type == 'data') {
+				console.log('-- 数据库db2需要更新数据如下：');
+				for(var k in v.data) console.log(v.data[k]);
+			}
+			if (!v.sqlUp && !v.procUp && !v.funcUp && !v.dataUp) console.log('-- 已经是最新，不需要更新！');
 			exit();
 		});
 	});
 }
 function diff(v) {
-	var d = { sql: {}, proc: {}, func: {}, sqlUp: 0, procUp: 0, funcUp: 0 };
+	var d = { sql: {}, proc: {}, func: {}, data: {}, sqlUp: 0, procUp: 0, funcUp: 0, dataUp: 0 };
 	if (program.type == 'table' || !program.type) for(var i = 0, len = v[0][0].length; i < len; i++) {
 		var name = v[0][0][i];
 		var table1 = v[2][name];
@@ -91,7 +99,101 @@ function diff(v) {
 			d.funcUp = 1;
 		}
 	}
+	if (program.type && program.type == 'data') {
+		var pk1 = getTablePK(v[2][v[2].table1]);
+		var pk2 = getTablePK(v[3][v[2].table2]);
+		if (pk1 == pk2) {
+			var sql = diffData(v[2][0], v[2][1], pk1.split(','), v[2].table1);
+			if (sql && sql.length > 0) {
+				d.data[name] = sql;
+				d.dataUp = 1;
+			}
+		}
+	}
 	return Promise.resolve(d);
+}
+function addslashes(str) {
+	return (str + '').replace(/[\\"']/g, '\\$&').replace(/\u0000/g, '\\0')
+}
+function diffData(v1, v2, pk, table) {
+	var v = [[],{},{}];
+	for(var i=0; i<v1.length; i++) {
+		var o = v1[i], k = getDataPKV(o, pk);
+		if (v[0].indexOf(k) == -1) v[0].push(k);
+		v[1][k] = o;
+	}
+	for(var i=0; i<v2.length; i++) {
+		var o = v2[i], k = getDataPKV(o, pk);
+		if (v[0].indexOf(k) == -1) v[0].push(k);
+		v[2][k] = o;
+	}
+	var inserts = [], deletes = [], updates = [];
+	for(var i = 0, len = v[0].length; i < len; i++) {
+		var name = v[0][i];
+		var d1 = v[1][name];
+		var d2 = v[2][name];
+
+		if (d1 && !d2) { inserts.push(d1); continue; }
+		if (!d1 && d2) { deletes.push(d2); continue; }
+
+		updates.push(name);
+	}
+	var sql = '';
+	if (inserts.length > 0) {
+		var insertSql = 'INSERT INTO `'+table+'` VALUES';
+		for(var i = 0, len = inserts.length; i < len; i++) {
+			insertSql += '(';
+			for(var k in inserts[i]) {
+				var oo = inserts[i][k];
+				insertSql +=  (typeof oo === 'string' ? ('\''+addslashes(oo)+'\'') : oo) + ',';
+			}
+			insertSql = insertSql.substring(0, insertSql.length-1);
+			insertSql += '),';
+		}
+		insertSql = insertSql.substring(0, insertSql.length-1);
+		insertSql += ';\n';
+		sql += insertSql;
+	}
+	if (deletes.length > 0) {
+		for(var i = 0, len = deletes.length; i < len; i++) {
+			var deleteSql = 'DELETE FROM `'+table+'` WHERE 1';
+			var oo = deletes[i];
+			for(var j in pk) {
+				deleteSql += ' and `'+pk[j]+'`='+(typeof oo[pk[j]] === 'string' ? ('\''+addslashes(oo[pk[j]])+'\'') : oo[pk[j]]);
+			}
+			deleteSql += ';\n';
+			sql += deleteSql.replace(' WHERE 1 and ', ' WHERE ');
+		}
+	}
+	if (updates.length > 0) {
+		for(var i = 0, len = updates.length; i < len; i++) {
+			var updateSql = 'UPDATE `'+table+'` SET ', upS = '';
+			for(var j in v[1][updates[i]]) {
+				var oo = v[1][updates[i]][j];
+				if (oo == v[2][updates[i]][j]) continue;
+				upS += '`'+j+'`='+(typeof oo === 'string' ? ('\''+addslashes(oo)+'\'') : oo)+',';
+			}
+			if (upS.length == 0) continue;
+			updateSql += upS.substring(0, upS.length - 1) + ' WHERE 1';
+			var oo = v[2][updates[i]];
+			for(var j in pk) {
+				updateSql += ' and `'+pk[j]+'`='+(typeof oo[pk[j]] === 'string' ? ('\''+addslashes(oo[pk[j]])+'\'') : oo[pk[j]]);
+			}
+			updateSql += ';\n';
+			sql += updateSql.replace(' WHERE 1 and ', ' WHERE ');
+		}
+	}
+	return sql;
+}
+function getDataPKV(obj, pk) {
+	var v = '';
+	for(var i=0;i<pk.length; i++) v += obj[pk[i]] + '\0';
+	return v ? v.substring(0, v.length - 1) : v;
+}
+function getTablePK(table) {
+	var line = table.match(/PRIMARY KEY \(.*\)/i)[0];
+	var pk = line.match(/`.*`/i)[0].replace(/`/g, '');
+	return pk;
 }
 function diffProcedure(name, proc1, proc2, ex) {
 	var p1 = filterProcedure(proc1);
@@ -213,15 +315,15 @@ function filterTable(table) {
 function allDesc(v) {
 	console.log('-- 开始比较db1 & db2的差异...');
 	var list = [], objs = [];
-	for(var k in v[0][1]) { //db1 tables(1)
+	if (program.type == 'table' || !program.type) for(var k in v[0][1]) {
 		list.push(db1.showCreateTable(k));
 		objs.push('0-' + 1 + '-' + k);
 	}
-	for(var k in v[0][2]) { //db2 tables(1)
+	if (program.type == 'table' || !program.type) for(var k in v[0][2]) {
 		list.push(db2.showCreateTable(k));
 		objs.push('1-' + 1 + '-' + k);
 	}
-	for(var k in v[1][2]) { //db1 procedure(2)
+	if (program.type == 'procedure' || program.type == 'function' || !program.type) for(var k in v[1][2]) {
 		var proc = v[1][0].indexOf(k) != -1;
 		var func = v[1][1].indexOf(k) != -1;
 		if (proc) {
@@ -233,7 +335,7 @@ function allDesc(v) {
 			objs.push('0-' + 3 + '-' + k);
 		}
 	}
-	for(var k in v[1][3]) { //db2 procedure(2)
+	if (program.type == 'procedure' || program.type == 'function' || !program.type) for(var k in v[1][3]) {
 		var proc = v[1][0].indexOf(k) != -1;
 		var func = v[1][1].indexOf(k) != -1;
 		if (proc) {
@@ -244,6 +346,12 @@ function allDesc(v) {
 			list.push(db2.showCreateFunction(k));
 			objs.push('1-' + 3 + '-' + k);
 		}
+	}
+	if (program.type && program.type == 'data') {
+		list.push(db1.showCreateTable(v[2].table1));
+		objs.push('0-' + 1 + '-' + v[2].table1);
+		list.push(db2.showCreateTable(v[2].table2));
+		objs.push('1-' + 1 + '-' + v[2].table2);
 	}
 	return Promise.all(list).then(function(v2){
 		v.push({}); v.push({});
@@ -256,8 +364,23 @@ function allDesc(v) {
 		return v;
 	});
 }
+function getDatas() {
+	var data = [[], []];
+	if (!program.type || (program.type && program.type != 'data')) return Promise.resolve(data);
+	var tables = program.table.split(':');
+	var table1 = tables[0];
+	var table2 = tables.length == 2 ? tables[1] : table1;
+	return Promise.all([db1.getData(table1), db2.getData(table2)]).then(function(v){
+		data[0] = v[0];
+		data[1] = v[1];
+		data.table1 = table1;
+		data.table2 = table2;
+		return data;
+	});
+}
 function getTables() {
 	var tables = [[], {}, {}];
+	if (program.type && program.type != 'table') return Promise.resolve(tables);
 	console.log('-- 正在获取数据表...');
 	return Promise.all([db1.tables(), db2.tables()]).then(function(v){
 		for(var i = 0, len = v[0].length; i < len; i++) {
@@ -277,8 +400,9 @@ function getTables() {
 		return tables;
 	});
 }
-function getParameterss() {
+function getParameters() {
 	var parameters = [[], [], {}, {}];
+	if (program.type && program.type != 'procedure' && program.type != 'function') return Promise.resolve(parameters);
 	console.log('-- 正在获取存储过程和函数...');
 	return Promise.all([db1.parameters(), db2.parameters()]).then(function(v){
 		for(var i = 0, len = v[0].length; i < len; i++) {

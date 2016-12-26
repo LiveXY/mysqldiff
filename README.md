@@ -18,10 +18,14 @@ npm install && npm link
 ```
 #base
 mysqldiff --db1=dbuser:dbpassword@dbhost~database --db2=dbuser:dbpassword@dbhost~database
+#reverse
+mysqldiff --db1=dbuser:dbpassword@dbhost~database --db2=dbuser:dbpassword@dbhost~database --reverse
 #port
 mysqldiff --db1=dbuser:dbpassword@dbhost~database#dbport --db2=dbuser:dbpassword@dbhost~database#dbport
 #ssh
 mysqldiff --db1=dbuser:dbpassword@dbhost~database --db2=dbuser:dbpassword@dbhost~database:dbport+sshuser:sshpassword@sshhost#sshport
+#data
+mysqldiff --db1=dbuser:dbpassword@dbhost~database --db2=dbuser:dbpassword@dbhost~database --type=data --table=tablename:tablename
 ```
 
 #运行环境
