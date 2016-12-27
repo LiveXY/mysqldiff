@@ -43,6 +43,9 @@ function DB(connectionString) {
         if (all.length > 1) initSSHConfig(all[1]);
         return self;
     }
+    this.getUser = function() {
+        return dbConfig.user;
+    }
     this.connect = function () {
         if (!dbConfig) return Promise.resolve(new Error('数据库配置参数错误!'));
         if (!sshConfig) return dbConnect(dbConfig);

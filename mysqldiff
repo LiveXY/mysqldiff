@@ -206,7 +206,11 @@ function diffProcedure(name, proc1, proc2, ex) {
 	return 'DROP '+ex+' `' + name + '`;\nDELIMITER ;;\n'+changeProcedure(proc1, proc2)+' ;;\nDELIMITER ;\n';
 }
 function changeProcedure(proc1, proc2) {
-	if (!proc2) return proc1;
+	if (!proc2) {
+		var user = db2.getUser();
+		proc1 = proc1.replace(/ DEFINER=`.*`@/g, ' DEFINER=`'+user+'`@');
+		return proc1;
+	}
 	var definer = proc2.match(/ DEFINER=(`.*`@`.*`) /i)[1];
 	proc1 = proc1.replace(/ DEFINER=(`.*`@`.*`) /g, ' DEFINER='+definer+' ');
 	return proc1;
