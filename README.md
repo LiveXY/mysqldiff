@@ -18,14 +18,19 @@ npm install && npm link
 ```
 #base
 mysqldiff --db1=dbuser:dbpassword@dbhost~database --db2=dbuser:dbpassword@dbhost~database
+mysqldiff -1 dbuser:dbpassword@dbhost~database -2 dbuser:dbpassword@dbhost~database
 #reverse
 mysqldiff --db1=dbuser:dbpassword@dbhost~database --db2=dbuser:dbpassword@dbhost~database --reverse
+mysqldiff -1 dbuser:dbpassword@dbhost~database -2 dbuser:dbpassword@dbhost~database -r
 #port
 mysqldiff --db1=dbuser:dbpassword@dbhost~database#dbport --db2=dbuser:dbpassword@dbhost~database#dbport
+mysqldiff -1 dbuser:dbpassword@dbhost~database#dbport -2 dbuser:dbpassword@dbhost~database#dbport
 #ssh
 mysqldiff --db1=dbuser:dbpassword@dbhost~database --db2=dbuser:dbpassword@dbhost~database:dbport+sshuser:sshpassword@sshhost#sshport
+mysqldiff -1 dbuser:dbpassword@dbhost~database -2 dbuser:dbpassword@dbhost~database:dbport+sshuser:sshpassword@sshhost#sshport
 #data
-mysqldiff --db1=dbuser:dbpassword@dbhost~database --db2=dbuser:dbpassword@dbhost~database --type=data --table=tablename:tablename
+mysqldiff --db1=dbuser:dbpassword@dbhost~database --db2=dbuser:dbpassword@dbhost~database --diff=data --table=db1tablename:db2tablename
+mysqldiff -1 dbuser:dbpassword@dbhost~database -2 dbuser:dbpassword@dbhost~database -d data -t db1tablename:db2tablename
 ```
 
 #运行环境

@@ -76,7 +76,11 @@ function DB(connectionString) {
         return self.query(sql, [dbConfig.database]);
     }
     this.tables = function() {
-        var sql = 'select table_name tabName from information_schema.tables where table_schema=?';
+        var sql = 'select table_name tabName from information_schema.tables where table_schema=? and table_type=\'BASE TABLE\'';
+        return self.query(sql, [dbConfig.database]);
+    }
+    this.views = function() {
+        var sql = 'select table_name viewName from information_schema.tables where table_schema=? and table_type=\'VIEW\'';
         return self.query(sql, [dbConfig.database]);
     }
     this.showCreateTable = function(table) {
@@ -90,6 +94,10 @@ function DB(connectionString) {
     this.showCreateFunction = function(func) {
         var sql = 'show create function ' + func;
         return self.first(sql).then(function(v){ return v['Create Function']; });
+    }
+    this.showCreateView = function(view) {
+        var sql = 'show create view ' + view;
+        return self.first(sql).then(function(v){ return v['Create View']; });
     }
     this.getData = function(table) {
         var sql = 'select * from ' + table + ' limit 1000';
