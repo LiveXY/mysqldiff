@@ -100,7 +100,7 @@ function DB(connectionString) {
         return self.first(sql).then(function(v){ return v['Create View']; });
     }
     this.getData = function(table) {
-        var sql = 'select * from ' + table + ' limit 1000';
+        var sql = 'select * from ' + table + ' limit 5000';
         return self.query(sql);
     }
     this.close = function() {

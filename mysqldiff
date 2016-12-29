@@ -42,11 +42,11 @@ function start() {
 	db1.connect().then(function(v){
 		if (!v) return console.log('-- Database db1: connection successful!');
 		console.error('-- Database db1 connection failed:', v.message);
-		exit();
+		return exit();
 	}).then(db2.connect).then(function(v){
 		if (v) console.error('-- Database db2 connection failed:', v.message);
 		else console.log('-- Database db2: connection success!');
-		if (v) exit();
+		if (v) return exit();
 		Promise.all([getTables(), getParameters(), getViews(), getDatas()]).then(allDesc).then(diff).then(function(v) {
 			if (v.sqlUp && (program.diff == 'table' || !program.diff)) {
 				console.log('-- Database db2 needs to update the table structure:');
@@ -72,7 +72,7 @@ function start() {
 				console.log('-- Is the latest, do not need to update!');
 			exit();
 		});
-	});
+	}).catch(function(v){ });
 }
 function diff(v) {
 	var d = { sql: {}, proc: {}, func: {}, view: {}, data: {}, sqlUp: 0, procUp: 0, funcUp: 0, viewUp: 0, dataUp: 0 };
