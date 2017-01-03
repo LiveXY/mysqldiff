@@ -13,9 +13,9 @@ program
 	.on('--help', function(){
 		console.log('  Examples:');
 		console.log('');
-		console.log('    mysqldiff --db1=root:password@127.0.0.1~database1 --db2=root:password@127.0.0.1~database2');
-		console.log('    mysqldiff -1 root:password@127.0.0.1~database1 -2 root:password@127.0.0.1~database2');
-		console.log('    mysqldiff -1 dbuser:dbpassword@dbhost~database -2 dbuser:dbpassword@dbhost~database:dbport+sshuser:sshpassword@sshhost#sshport');
+		console.log('	mysqldiff --db1=root:password@127.0.0.1~database1 --db2=root:password@127.0.0.1~database2');
+		console.log('	mysqldiff -1 root:password@127.0.0.1~database1 -2 root:password@127.0.0.1~database2');
+		console.log('	mysqldiff -1 dbuser:dbpassword@dbhost~database -2 dbuser:dbpassword@dbhost~database:dbport+sshuser:sshpassword@sshhost#sshport');
 		console.log('');
 	})
 	.version('0.0.1')
