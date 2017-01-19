@@ -314,7 +314,7 @@ function diffTableField(name, table1, table2) {
 
 	if (pk1 != '' && pk2 == '') sql += 'ALTER TABLE `'+name+'` ADD PRIMARY KEY '+pk1+';\n';
 	if (pk1 == '' && pk2 != '') sql += 'ALTER TABLE `'+name+'` DROP PRIMARY KEY;\n';
-	if (pk1 != '' && pk2 != '' && pk1 != pk2) sql += 'ALTER TABLE `'+name+'` DROP PRIMARY KEY,ADD PRIMARY KEY '+pk2+';\n';
+	if (pk1 != '' && pk2 != '' && pk1 != pk2) sql += 'ALTER TABLE `'+name+'` DROP PRIMARY KEY,ADD PRIMARY KEY '+pk1+';\n';
 
 	for(var i=0, len = key.length; i<len; i++) {
 		var k = key[i], k1 = key1[k], k2 = key2[k];
