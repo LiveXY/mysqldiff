@@ -28,7 +28,7 @@ function DB(connectionString) {
 
 		var user = config.substring(0, index1);
 		var password = config.substring(index1+1, index2);
-		var host = config.substring(index2+1);
+		var host = config.substring(index2+1, index3);
 		var port = parseInt(config.substring(index3+1)) || 0;
 		if (port < 1) port = 22;
 
