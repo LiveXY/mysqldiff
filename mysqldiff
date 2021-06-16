@@ -8,6 +8,8 @@ var db1Tip = '-1, --db1=dbuser:dbpassword@dbhost~database#dbport';
 var db2Tip = '-2, --db2=dbuser:dbpassword@dbhost~database#dbport+sshuser:sshpassword@sshhost#sshport';
 var typeTip = '-d, --diff=table|procedure|function|view|data';
 var tableTip = '-t, --table=db1table:db2table';
+var igNT = false;
+var igC = false;
 
 program
 	.on('--help', function(){
@@ -24,6 +26,7 @@ program
 	.option('-2, --db2 <server>', db2Tip)
 	.option('-d, --diff <type>', typeTip)
 	.option('-t, --table <table>', tableTip)
+	.option('-i, --ignore <type>', tableTip)
 	.option('-r, --reverse', '-r, --reverse=Exchange db1 and db2 configuration')
 	.parse(process.argv);
 
@@ -36,6 +39,8 @@ function check() {
 }
 function start() {
 	if (!check()) return;
+	igNT = program.ignore.indexOf('numbertype') !== -1;
+	igC = program.ignore.indexOf('character') !== -1;
 	console.log('-- Connecting to the database: db1 & db2 ...');
 	db1 = new DB(program.reverse ? program.db2 : program.db1);
 	db2 = new DB(program.reverse ? program.db1 : program.db2);
@@ -254,12 +259,22 @@ function filterProcedure(proc) {
 	proc = proc.replace(/ DEFINER=.* VIEW/g, ' VIEW');
 	return proc.trim();
 }
+function filterIgnore(data) {
+	if (igNT && data.indexOf(' tinyint(') != -1) data = data.replace(/ tinyint\(\d+\)/g, ' tinyint')
+	if (igNT && data.indexOf(' int(') != -1) data = data.replace(/ int\(\d+\)/g, ' int')
+	if (igNT && data.indexOf(' bigint(') != -1) data = data.replace(/ bigint\(\d+\)/g, ' bigint')
+	if (igNT && data.indexOf(' smallint(') != -1) data = data.replace(/ smallint\(\d+\)/g, ' smallint')
+	if (igC && data.indexOf(' CHARACTER ') != -1) data = data.replace(/ CHARACTER SET .*? COLLATE .*? /g, ' ')
+	if (igC && data.indexOf(' COLLATE ') != -1) data = data.replace(/ COLLATE .*? /g, ' ')
+	if (igC && data.indexOf(' COLLATE=') != -1) data = data.replace(/ COLLATE=.*? /g, ' ')
+	return data
+}
 function diffTable(name, table1, table2) {
 	var t1 = filterTable(table1);
 	var t2 = filterTable(table2);
 	if (t1 == t2) return null;
 
-	if (t1 != '' && t2 == '') return table1 + ';\n';
+	if (t1 != '' && t2 == '') return filterIgnore(table1) + ';\n';
 	if (t1 == '' && t2 != '') return 'DROP TABLE `' + name + '`;\n';
 
 	return diffTableField(name, table1, table2);
@@ -279,6 +294,7 @@ function diffTableField(name, table1, table2) {
 		var field = row.indexOf('`') == 0 ? row.split(' ')[0] : false;
 		var pkey = row.indexOf('PRIMARY KEY ') == 0 ? row.substring(12) : false;
 		var ikey = row.indexOf('KEY `') == 0 ? row.substring(4) : false;
+		row = filterIgnore(row)
 		if (field) { col1[field] = row; if (col.indexOf(field) == -1) col.push(field); }
 		if (pkey) pk1 = pkey;
 		if (ikey) { key1[ikey] = 1; if (key.indexOf(ikey) == -1) key.push(ikey); }
@@ -290,6 +306,7 @@ function diffTableField(name, table1, table2) {
 		var field = row.indexOf('`') == 0 ? row.split(' ')[0] : false;
 		var pkey = row.indexOf('PRIMARY KEY ') == 0 ? row.substring(12) : false;
 		var ikey = row.indexOf('KEY `') == 0 ? row.substring(4) : false;
+		row = filterIgnore(row)
 		if (field) { col2[field] = row; if (col.indexOf(field) == -1) col.push(field); }
 		if (pkey) pk2 = pkey;
 		if (ikey) { key2[ikey] = 1; if (key.indexOf(ikey) == -1) key.push(ikey); }
@@ -300,13 +317,12 @@ function diffTableField(name, table1, table2) {
 		var c = col[i], c1 = col1[c], c2 = col2[c];
 		var c3 = filterField(c1), c4 = filterField(c2);
 		if (c3 == c4) continue;
-
-		if (c3 != '' && c4 == '') {
-			sql += 'ALTER TABLE `'+name+'` ADD COLUMN '+c1+';\n';
-			continue;
-		}
 		if (c3 == '' && c4 != '') {
 			sql += 'ALTER TABLE `'+name+'` DROP COLUMN '+c+';\n';
+			continue;
+		}
+		if (c3 != '' && c4 == '') {
+			sql += 'ALTER TABLE `'+name+'` ADD COLUMN '+c1+';\n';
 			continue;
 		}
 		sql += 'ALTER TABLE `'+name+'` CHANGE COLUMN '+c+' '+c1+';\n';
@@ -319,14 +335,13 @@ function diffTableField(name, table1, table2) {
 	for(var i=0, len = key.length; i<len; i++) {
 		var k = key[i], k1 = key1[k], k2 = key2[k];
 		if (k1 == k2) continue;
-
-		if (k1 && !k2) {
-			sql += 'ALTER TABLE `'+name+'` ADD INDEX '+k+';\n';
-			continue;
-		}
 		if (!k1 && k2) {
 			var kname = k.split(' ')[0];
 			sql += 'ALTER TABLE `'+name+'` DROP INDEX '+kname+';\n';
+			continue;
+		}
+		if (k1 && !k2) {
+			sql += 'ALTER TABLE `'+name+'` ADD INDEX '+k+';\n';
 			continue;
 		}
 	}
