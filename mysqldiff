@@ -39,8 +39,8 @@ function check() {
 }
 function start() {
 	if (!check()) return;
-	igNT = program.ignore.indexOf('numbertype') !== -1;
-	igC = program.ignore.indexOf('character') !== -1;
+	igNT = program.ignore && program.ignore.indexOf('numbertype') !== -1;
+	igC = program.ignore && program.ignore.indexOf('character') !== -1;
 	console.log('-- Connecting to the database: db1 & db2 ...');
 	db1 = new DB(program.reverse ? program.db2 : program.db1);
 	db2 = new DB(program.reverse ? program.db1 : program.db2);
