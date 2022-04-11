@@ -315,6 +315,12 @@ function diffTableField(name, table1, table2) {
 	var sql = '';
 	for(var i=0, len = col.length; i<len; i++) {
 		var c = col[i], c1 = col1[c], c2 = col2[c];
+		if (!!c2) {
+			c2 = c2.replace(/DEFAULT ([0-9.-]+)/g, "DEFAULT '$1'")
+		}
+		if (!!c2 && c2.indexOf(' text DEFAULT NULL') != -1) {
+			c2 = c2.replace(/ text DEFAULT NULL/g, " text")
+		}
 		var c3 = filterField(c1), c4 = filterField(c2);
 		if (c3 == c4) continue;
 		if (c3 == '' && c4 != '') {
@@ -327,7 +333,6 @@ function diffTableField(name, table1, table2) {
 		}
 		sql += 'ALTER TABLE `'+name+'` CHANGE COLUMN '+c+' '+c1+';\n';
 	}
-
 	if (pk1 != '' && pk2 == '') sql += 'ALTER TABLE `'+name+'` ADD PRIMARY KEY '+pk1+';\n';
 	if (pk1 == '' && pk2 != '') sql += 'ALTER TABLE `'+name+'` DROP PRIMARY KEY;\n';
 	if (pk1 != '' && pk2 != '' && pk1 != pk2) sql += 'ALTER TABLE `'+name+'` DROP PRIMARY KEY,ADD PRIMARY KEY '+pk1+';\n';
