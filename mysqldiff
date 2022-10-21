@@ -8,6 +8,7 @@ var db1Tip = '-1, --db1=dbuser:dbpassword@dbhost~database#dbport';
 var db2Tip = '-2, --db2=dbuser:dbpassword@dbhost~database#dbport+sshuser:sshpassword@sshhost#sshport';
 var typeTip = '-d, --diff=table|procedure|function|view|data';
 var tableTip = '-t, --table=db1table:db2table';
+var dbtypeTip = '--dbtype=mysql|dameng|pgsql';
 var igNT = false;
 var igC = false;
 
@@ -28,6 +29,8 @@ program
 	.option('-t, --table <table>', tableTip)
 	.option('-i, --ignore <type>', tableTip)
 	.option('-r, --reverse', '-r, --reverse=Exchange db1 and db2 configuration')
+	.option('--dbtype <dbtype>', dbtypeTip)
+	.option('--ns <namespace>', "--ns=namespace")
 	.parse(process.argv);
 
 function check() {
@@ -39,6 +42,8 @@ function check() {
 }
 function start() {
 	if (!check()) return;
+	if (!program.dbtype) program.dbtype = 'mysql';
+	if (program.ns) program.ns = program.ns + '.'; else program.ns = ''
 	igNT = program.ignore && program.ignore.indexOf('numbertype') !== -1;
 	igC = program.ignore && program.ignore.indexOf('character') !== -1;
 	console.log('-- Connecting to the database: db1 & db2 ...');
@@ -275,8 +280,15 @@ function diffTable(name, table1, table2) {
 	if (t1 == t2) return null;
 
 	if (t1 != '' && t2 == '') return filterIgnore(table1) + ';\n';
-	if (t1 == '' && t2 != '') return 'DROP TABLE `' + name + '`;\n';
-
+	if (t1 == '' && t2 != '') {
+		if (program.dbtype == 'dameng') {
+			return 'DROP TABLE ' + program.ns + name + ';\n';
+		} else if (program.dbtype == 'pgsql') {
+			return 'DROP TABLE ' + program.ns + name.toUpperCase() + ';\n';
+		} else {
+			return 'DROP TABLE `' + name + '`;\n';
+		}
+	}
 	return diffTableField(name, table1, table2);
 }
 function diffTableField(name, table1, table2) {
@@ -324,14 +336,44 @@ function diffTableField(name, table1, table2) {
 		var c3 = filterField(c1), c4 = filterField(c2);
 		if (c3 == c4) continue;
 		if (c3 == '' && c4 != '') {
-			sql += 'ALTER TABLE `'+name+'` DROP COLUMN '+c+';\n';
+			if (program.dbtype == 'dameng') {
+				sql += 'ALTER TABLE ' + program.ns + name.toUpperCase() + ' DROP COLUMN ' + c.toUpperCase() + ';\n';
+			} else if (program.dbtype == 'pgsql') {
+				sql += 'ALTER TABLE ' + program.ns + name + ' DROP COLUMN '+c+';\n';
+			} else {
+				sql += 'ALTER TABLE `'+name+'` DROP COLUMN '+c+';\n';
+			}
 			continue;
 		}
 		if (c3 != '' && c4 == '') {
-			sql += 'ALTER TABLE `'+name+'` ADD COLUMN '+c1+';\n';
+			if (program.dbtype == 'dameng') {
+				commentIndex = c1.indexOf("COMMENT")
+				if (commentIndex != -1) {
+					c1 = c1.substring(0, commentIndex - 1)
+				}
+				c1 = c1.replace(/`/g, '"').replace("'0.00'", '0').replace("'0.0'", '0').replace("'0'", '0')
+				c1 = c1.replace(/DEFAULT '([0-9.-]+)'/g, "DEFAULT $1")
+				sql += 'ALTER TABLE ' + program.ns + name.toUpperCase() + ' ADD COLUMN ' + c1.toUpperCase() + ';\n';
+			} else if (program.dbtype == 'pgsql') {
+				sql += 'ALTER TABLE ' + program.ns + name + ' ADD COLUMN '+c1+';\n';
+			} else {
+				sql += 'ALTER TABLE `'+name+'` ADD COLUMN '+c1+';\n';
+			}
 			continue;
 		}
-		sql += 'ALTER TABLE `'+name+'` CHANGE COLUMN '+c+' '+c1+';\n';
+		if (program.dbtype == 'dameng') {
+			commentIndex = c1.indexOf("COMMENT")
+			if (commentIndex != -1) {
+				c1 = c1.substring(0, commentIndex - 1)
+			}
+			c1 = c1.replace(/`/g, '"').replace("'0.00'", '0').replace("'0.0'", '0').replace("'0'", '0')
+			c1 = c1.replace(/DEFAULT '([0-9.-]+)'/g, "DEFAULT $1")
+			sql += 'ALTER TABLE ' + program.ns + name.toUpperCase() + ' MODIFY '+c1.toUpperCase()+';\n';
+		} else if (program.dbtype == 'pgsql') {
+			sql += 'ALTER TABLE ' + program.ns + name + ' CHANGE COLUMN '+c+' '+c1+';\n';
+		} else {
+			sql += 'ALTER TABLE `'+name+'` CHANGE COLUMN '+c+' '+c1+';\n';
+		}
 	}
 	if (pk1 != '' && pk2 == '') sql += 'ALTER TABLE `'+name+'` ADD PRIMARY KEY '+pk1+';\n';
 	if (pk1 == '' && pk2 != '') sql += 'ALTER TABLE `'+name+'` DROP PRIMARY KEY;\n';
@@ -342,11 +384,28 @@ function diffTableField(name, table1, table2) {
 		if (k1 == k2) continue;
 		if (!k1 && k2) {
 			var kname = k.split(' ')[0];
-			sql += 'ALTER TABLE `'+name+'` DROP INDEX '+kname+';\n';
+			if (program.dbtype == 'dameng') {
+				kname = kname.replace(/`/g, '"')
+				sql += 'DROP INDEX '+program.ns + kname.toUpperCase()+';\n';
+			} else if (program.dbtype == 'pgsql') {
+				sql += 'ALTER TABLE `'+name+'` DROP INDEX '+kname+';\n';
+			} else {
+				sql += 'ALTER TABLE `'+name+'` DROP INDEX '+kname+';\n';
+			}
 			continue;
 		}
 		if (k1 && !k2) {
-			sql += 'ALTER TABLE `'+name+'` ADD INDEX '+k+';\n';
+			if (program.dbtype == 'dameng') {
+				k = k.replace(/`/g, '"')
+				ks = k.replace(/"/g, '').split(' ')
+				kname = ks[0]
+				kks = ks[1]
+				sql += 'CREATE INDEX "' + name.toUpperCase() + '_' + kname.toUpperCase() + '" ON '+program.ns + name.toUpperCase() + kks.toUpperCase()+';\n';
+			} else if (program.dbtype == 'pgsql') {
+				sql += 'ALTER TABLE `'+name+'` ADD INDEX '+k+';\n';
+			} else {
+				sql += 'ALTER TABLE `'+name+'` ADD INDEX '+k+';\n';
+			}
 			continue;
 		}
 	}
