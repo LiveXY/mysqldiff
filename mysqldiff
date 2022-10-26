@@ -175,7 +175,19 @@ function diffData(v1, v2, pk, table) {
 	}
 	var sql = '';
 	if (inserts.length > 0) {
-		var insertSql = 'INSERT INTO `'+table+'` VALUES';
+		var insertSql = '';
+		if (program.dbtype == 'dameng') {
+			var cols = ""
+			for(var k in inserts[0]) {
+				cols += '"' + k + '",'
+			}
+			cols = cols.substring(0, cols.length - 1)
+			insertSql = 'INSERT INTO '+program.ns+'"'+table.toUpperCase()+'"('+cols.toUpperCase()+') VALUES';
+		} else if (program.dbtype == 'pgsql') {
+			insertSql = 'INSERT INTO "'+table+'" VALUES';
+		} else {
+			insertSql = 'INSERT INTO `'+table+'` VALUES';
+		}
 		for(var i = 0, len = inserts.length; i < len; i++) {
 			insertSql += '(';
 			for(var k in inserts[i]) {
@@ -191,32 +203,69 @@ function diffData(v1, v2, pk, table) {
 	}
 	if (deletes.length > 0) {
 		for(var i = 0, len = deletes.length; i < len; i++) {
-			var deleteSql = 'DELETE FROM `'+table+'` WHERE 1';
+			var deleteSql = '';
+			if (program.dbtype == 'dameng') {
+				deleteSql = 'DELETE FROM '+program.ns+'"'+table.toUpperCase()+'" WHERE 1';
+			} else if (program.dbtype == 'pgsql') {
+				deleteSql = 'DELETE FROM `'+table+'` WHERE 1';
+			} else {
+				deleteSql = 'DELETE FROM `'+table+'` WHERE 1';
+			}
 			var oo = deletes[i];
 			for(var j in pk) {
-				deleteSql += ' and `'+pk[j]+'`='+(typeof oo[pk[j]] === 'string' ? ('\''+addslashes(oo[pk[j]])+'\'') : oo[pk[j]]);
+				var key = pk[j]
+				if (program.dbtype == 'dameng') {
+					key = key.toUpperCase()
+				}
+				deleteSql += ' and `'+key+'`='+(typeof oo[pk[j]] === 'string' ? ('\''+addslashes(oo[pk[j]])+'\'') : oo[pk[j]]);
 			}
 			deleteSql += ';\n';
-			sql += deleteSql.replace(' WHERE 1 and ', ' WHERE ');
+			deleteSql = deleteSql.replace(' WHERE 1 and ', ' WHERE ');
+			if (program.dbtype == 'dameng') {
+				deleteSql = deleteSql.replace(/`/g, '"')
+			}
+			sql += deleteSql
 		}
 	}
 	if (updates.length > 0) {
 		for(var i = 0, len = updates.length; i < len; i++) {
-			var updateSql = 'UPDATE `'+table+'` SET ', upS = '';
+			var updateSql = ''; var upS = ''
+			if (program.dbtype == 'dameng') {
+				updateSql = 'UPDATE '+program.ns+'"'+table.toUpperCase()+'" SET ';
+			} else if (program.dbtype == 'pgsql') {
+				updateSql = 'UPDATE `'+table+'` SET ';
+			} else {
+				updateSql = 'UPDATE `'+table+'` SET ';
+			}
 			for(var j in v[1][updates[i]]) {
+				var key = j
+				if (program.dbtype == 'dameng') {
+					key = key.toUpperCase()
+				}
 				var oo = v[1][updates[i]][j];
 				if (oo == v[2][updates[i]][j]) continue;
-				upS += '`'+j+'`='+(typeof oo === 'string' ? ('\''+addslashes(oo)+'\'') : oo)+',';
+				upS += '`'+key+'`='+(typeof oo === 'string' ? ('\''+addslashes(oo)+'\'') : oo)+',';
 			}
 			if (upS.length == 0) continue;
 			updateSql += upS.substring(0, upS.length - 1) + ' WHERE 1';
 			var oo = v[2][updates[i]];
 			for(var j in pk) {
-				updateSql += ' and `'+pk[j]+'`='+(typeof oo[pk[j]] === 'string' ? ('\''+addslashes(oo[pk[j]])+'\'') : oo[pk[j]]);
+				var key = pk[j]
+				if (program.dbtype == 'dameng') {
+					key = key.toUpperCase()
+				}
+				updateSql += ' and `'+key+'`='+(typeof oo[pk[j]] === 'string' ? ('\''+addslashes(oo[pk[j]])+'\'') : oo[pk[j]]);
 			}
 			updateSql += ';\n';
-			sql += updateSql.replace(' WHERE 1 and ', ' WHERE ');
+			updateSql = updateSql.replace(' WHERE 1 and ', ' WHERE ');
+			if (program.dbtype == 'dameng') {
+				updateSql = updateSql.replace(/`/g, '"')
+			}
+			sql += updateSql
 		}
+	}
+	if (program.dbtype == 'dameng' && sql.length > 0) {
+		sql += "COMMIT;\n"
 	}
 	return sql;
 }
@@ -224,6 +273,16 @@ function getDataPKV(obj, pk) {
 	var v = '';
 	for(var i=0;i<pk.length; i++) v += obj[pk[i]] + '\0';
 	return v ? v.substring(0, v.length - 1) : v;
+}
+function getTableIndex(table) {
+	var indexs = []
+	var lines = table.match(/,\n  KEY `(.*?)` \((.*?)\)/g);
+	for (var i in lines) {
+		var o = lines[i]
+		var m = o.replace(/`/g, '"').match(/KEY "(.*?)" \((.*?)\)/i);
+		indexs.push({name: m[1], col: m[2]})
+	}
+	return indexs;
 }
 function getTablePK(table) {
 	var line = table.match(/PRIMARY KEY \(.*\)/i)[0];
@@ -279,7 +338,30 @@ function diffTable(name, table1, table2) {
 	var t2 = filterTable(table2);
 	if (t1 == t2) return null;
 
-	if (t1 != '' && t2 == '') return filterIgnore(table1) + ';\n';
+	if (t1 != '' && t2 == '') {
+		var tablesql = filterIgnore(table1) + ';\n';
+		if (program.dbtype == 'dameng') {
+			var indexs = getTableIndex(tablesql)
+			tablesql = tablesql.replace(/`/g, '"').replace("'0.00'", '0').replace("'0.0'", '0').replace("'0'", '0')
+			tablesql = tablesql.replace(/DEFAULT '([0-9.-]+)'/g, "DEFAULT $1")
+			tablesql = tablesql.replace(/ COMMENT '(.*?)',/g, ",")
+			tablesql = tablesql.replace(/CREATE TABLE "/g, 'CREATE TABLE ' + program.ns + '"')
+			tablesql = tablesql.replace('bigint NOT NULL AUTO_INCREMENT', 'BIGINT NOT NULL IDENTITY(19,1)')
+			tablesql = tablesql.replace('int NOT NULL AUTO_INCREMENT', 'INT NOT NULL IDENTITY(10,1)')
+			tablesql = tablesql.replace(/,\n  KEY "(.*?)" \(.*?\)/g, '')
+			tablesql = tablesql.replace(/\) (.*?);/g, ');')
+			for (var i in indexs) {
+				var o = indexs[i]
+				tablesql += '\nCREATE INDEX "' + name.toUpperCase() + '_' + o.name.toUpperCase() + '" ON '+program.ns + name.toUpperCase() + "(" + o.col.toUpperCase()+');';
+			}
+			if (indexs.length > 0) tablesql += "\n";
+			return tablesql.toUpperCase()
+		} else if (program.dbtype == 'pgsql') {
+			return tablesql
+		} else {
+			return tablesql
+		}
+	}
 	if (t1 == '' && t2 != '') {
 		if (program.dbtype == 'dameng') {
 			return 'DROP TABLE ' + program.ns + name + ';\n';
@@ -409,7 +491,6 @@ function diffTableField(name, table1, table2) {
 			continue;
 		}
 	}
-
 	return sql;
 }
 function filterField(field) {
