@@ -184,7 +184,7 @@ function diffData(v1, v2, pk, table) {
 			cols = cols.substring(0, cols.length - 1)
 			insertSql = 'INSERT INTO '+program.ns+'"'+table.toUpperCase()+'"('+cols.toUpperCase()+') VALUES';
 		} else if (program.dbtype == 'pgsql') {
-			insertSql = 'INSERT INTO "'+table+'" VALUES';
+			insertSql = 'INSERT INTO '+program.ns+table+' VALUES';
 		} else {
 			insertSql = 'INSERT INTO `'+table+'` VALUES';
 		}
@@ -207,7 +207,7 @@ function diffData(v1, v2, pk, table) {
 			if (program.dbtype == 'dameng') {
 				deleteSql = 'DELETE FROM '+program.ns+'"'+table.toUpperCase()+'" WHERE 1';
 			} else if (program.dbtype == 'pgsql') {
-				deleteSql = 'DELETE FROM `'+table+'` WHERE 1';
+				deleteSql = 'DELETE FROM '+program.ns+table+' WHERE 1';
 			} else {
 				deleteSql = 'DELETE FROM `'+table+'` WHERE 1';
 			}
@@ -233,7 +233,7 @@ function diffData(v1, v2, pk, table) {
 			if (program.dbtype == 'dameng') {
 				updateSql = 'UPDATE '+program.ns+'"'+table.toUpperCase()+'" SET ';
 			} else if (program.dbtype == 'pgsql') {
-				updateSql = 'UPDATE `'+table+'` SET ';
+				updateSql = 'UPDATE '+program.ns+table+' SET ';
 			} else {
 				updateSql = 'UPDATE `'+table+'` SET ';
 			}
@@ -350,6 +350,7 @@ function diffTable(name, table1, table2) {
 			tablesql = tablesql.replace('int NOT NULL AUTO_INCREMENT', 'INT NOT NULL IDENTITY(10,1)')
 			tablesql = tablesql.replace(/,\n  KEY "(.*?)" \(.*?\)/g, '')
 			tablesql = tablesql.replace(/\) (.*?);/g, ');')
+			tablesql = tablesql.replace(' USING BTREE', '')
 			for (var i in indexs) {
 				var o = indexs[i]
 				tablesql += '\nCREATE INDEX "' + name.toUpperCase() + '_' + o.name.toUpperCase() + '" ON '+program.ns + name.toUpperCase() + "(" + o.col.toUpperCase()+');';
@@ -357,6 +358,27 @@ function diffTable(name, table1, table2) {
 			if (indexs.length > 0) tablesql += "\n";
 			return tablesql.toUpperCase()
 		} else if (program.dbtype == 'pgsql') {
+			var indexs = getTableIndex(tablesql)
+			tablesql = tablesql.replace(/`/g, '"').replace("'0.00'", '0').replace("'0.0'", '0').replace("'0'", '0')
+			tablesql = tablesql.replace(/DEFAULT '([0-9.-]+)'/g, "DEFAULT $1")
+			tablesql = tablesql.replace(/ COMMENT '(.*?)',/g, ",")
+			tablesql = tablesql.replace(/CREATE TABLE "/g, 'CREATE TABLE ' + program.ns + '"')
+			tablesql = tablesql.replace('bigint NOT NULL AUTO_INCREMENT', 'bigserial NOT NULL')
+			tablesql = tablesql.replace('int NOT NULL AUTO_INCREMENT', 'serial NOT NULL')
+
+			tablesql = tablesql.replace(' bigint NOT NULL', ' int8 NOT NULL')
+			tablesql = tablesql.replace(' tinyint NOT NULL', ' int2 NOT NULL')
+			tablesql = tablesql.replace(' int NOT NULL', ' int4 NOT NULL')
+			tablesql = tablesql.replace(' decimal(', ' numeric(')
+
+			tablesql = tablesql.replace(/,\n  KEY "(.*?)" \(.*?\)/g, '')
+			tablesql = tablesql.replace(/\) (.*?);/g, ');')
+			tablesql = tablesql.replace(' USING BTREE', '')
+			for (var i in indexs) {
+				var o = indexs[i]
+				tablesql += '\nCREATE INDEX "' + name + '_' + o.name + '" ON '+program.ns + name + " (" + o.col+');';
+			}
+			if (indexs.length > 0) tablesql += "\n";
 			return tablesql
 		} else {
 			return tablesql
@@ -366,7 +388,7 @@ function diffTable(name, table1, table2) {
 		if (program.dbtype == 'dameng') {
 			return 'DROP TABLE ' + program.ns + name + ';\n';
 		} else if (program.dbtype == 'pgsql') {
-			return 'DROP TABLE ' + program.ns + name.toUpperCase() + ';\n';
+			return 'DROP TABLE ' + program.ns + name + ';\n';
 		} else {
 			return 'DROP TABLE `' + name + '`;\n';
 		}
@@ -437,7 +459,17 @@ function diffTableField(name, table1, table2) {
 				c1 = c1.replace(/DEFAULT '([0-9.-]+)'/g, "DEFAULT $1")
 				sql += 'ALTER TABLE ' + program.ns + name.toUpperCase() + ' ADD COLUMN ' + c1.toUpperCase() + ';\n';
 			} else if (program.dbtype == 'pgsql') {
-				sql += 'ALTER TABLE ' + program.ns + name + ' ADD COLUMN '+c1+';\n';
+				commentIndex = c1.indexOf("COMMENT")
+				if (commentIndex != -1) {
+					c1 = c1.substring(0, commentIndex - 1)
+				}
+				c1 = c1.replace(/`/g, '').replace("'0.00'", '0').replace("'0.0'", '0').replace("'0'", '0')
+				c1 = c1.replace(/DEFAULT '([0-9.-]+)'/g, "DEFAULT $1")
+				c1 = c1.replace(' bigint NOT NULL', ' int8 NOT NULL')
+				c1 = c1.replace(' tinyint NOT NULL', ' int2 NOT NULL')
+				c1 = c1.replace(' int NOT NULL', ' int4 NOT NULL')
+				c1 = c1.replace(' decimal(', ' numeric(')
+				sql += 'ALTER TABLE ' + program.ns + name + ' ADD '+c1+';\n';
 			} else {
 				sql += 'ALTER TABLE `'+name+'` ADD COLUMN '+c1+';\n';
 			}
@@ -452,7 +484,27 @@ function diffTableField(name, table1, table2) {
 			c1 = c1.replace(/DEFAULT '([0-9.-]+)'/g, "DEFAULT $1")
 			sql += 'ALTER TABLE ' + program.ns + name.toUpperCase() + ' MODIFY '+c1.toUpperCase()+';\n';
 		} else if (program.dbtype == 'pgsql') {
-			sql += 'ALTER TABLE ' + program.ns + name + ' CHANGE COLUMN '+c+' '+c1+';\n';
+			commentIndex = c1.indexOf("COMMENT")
+			if (commentIndex != -1) {
+				c1 = c1.substring(0, commentIndex - 1)
+			}
+			c1 = c1.replace(/`/g, '').replace("'0.00'", '0').replace("'0.0'", '0').replace("'0'", '0')
+			c1 = c1.replace(/DEFAULT '([0-9.-]+)'/g, "DEFAULT $1")
+			c1 = c1.replace(' bigint NOT NULL', ' int8 NOT NULL')
+			c1 = c1.replace(' tinyint NOT NULL', ' int2 NOT NULL')
+			c1 = c1.replace(' int NOT NULL', ' int4 NOT NULL')
+			c1 = c1.replace(' decimal(', ' numeric(')
+			c = c.replace(/`/g, '')
+			cs = c1.split(' ')
+			if (c1.indexOf("DEFAULT") != -1) {
+				ct = cs[1]
+				cd = cs[cs.length-1]
+				sql += 'ALTER TABLE ' + program.ns + name + ' ALTER COLUMN '+c+' TYPE '+ct+';\n';
+				sql += 'ALTER TABLE ' + program.ns + name + ' ALTER COLUMN '+c+' SET DEFAULT '+cd+';\n\n';
+			} else {
+				ct = cs[1]
+				sql += 'ALTER TABLE ' + program.ns + name + ' ALTER COLUMN '+c+' TYPE '+ct+';\n\n';
+			}
 		} else {
 			sql += 'ALTER TABLE `'+name+'` CHANGE COLUMN '+c+' '+c1+';\n';
 		}
@@ -470,7 +522,8 @@ function diffTableField(name, table1, table2) {
 				kname = kname.replace(/`/g, '"')
 				sql += 'DROP INDEX '+program.ns + kname.toUpperCase()+';\n';
 			} else if (program.dbtype == 'pgsql') {
-				sql += 'ALTER TABLE `'+name+'` DROP INDEX '+kname+';\n';
+				kname = kname.replace(/`/g, '')
+				sql += 'DROP INDEX '+program.ns + kname+';\n';
 			} else {
 				sql += 'ALTER TABLE `'+name+'` DROP INDEX '+kname+';\n';
 			}
@@ -484,7 +537,11 @@ function diffTableField(name, table1, table2) {
 				kks = ks[1]
 				sql += 'CREATE INDEX "' + name.toUpperCase() + '_' + kname.toUpperCase() + '" ON '+program.ns + name.toUpperCase() + kks.toUpperCase()+';\n';
 			} else if (program.dbtype == 'pgsql') {
-				sql += 'ALTER TABLE `'+name+'` ADD INDEX '+k+';\n';
+				k = k.replace(/`/g, '"')
+				ks = k.replace(/"/g, '').split(' ')
+				kname = ks[0]
+				kks = ks[1]
+				sql += 'CREATE INDEX ' + name + '_' + kname + ' ON '+program.ns + name + ' ' + kks+';\n';
 			} else {
 				sql += 'ALTER TABLE `'+name+'` ADD INDEX '+k+';\n';
 			}
