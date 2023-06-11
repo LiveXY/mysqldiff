@@ -112,7 +112,9 @@ function DB(connectionString) {
 			for(var i=0,len=errs.length;i<len;i++) {
 				var e = errs[i];
 				if (e.indexOf('grep ') != -1) continue;
-				var pid = e.match(/ (\d+) /g)[0].trim();
+				var ssh = e.match(/ (\d+) /g)
+				if (!ssh) return null
+				var pid = ssh[0].trim();
 				return pid;
 			}
 			return null;
